@@ -1,0 +1,35 @@
+\section{WADRL v3 Policy Implementation}
+\label{sec:wadrl-v3-model}
+
+The policy in \texttt{models\_v1.py} implements a weight-conditioned transformer policy with a windowed memory slot.
+
+\subsection{Inputs}
+Each step consumes a graph context, per-truck and per-drone contexts, feasibility masks, and a weight vector
+(w1,w2). The environment provides normalized coordinates, service times, energy and trip features, and masks that
+enforce feasibility.
+
+\subsection{Encoding and conditioning}
+Node, truck, and drone features are projected into a shared embedding space. Weight conditioning is applied in two
+ways: (1) a weight token embedded by \texttt{w\_proj} and included in the context pool, and (2) FiLM modulation
+of the node and agent embeddings via linear layers that produce per-dimension scale and bias from (w1,w2).
+
+\subsection{Context mixing and action logits}
+Graph tokens are encoded by a Transformer encoder, then mixed with truck, drone, weight, and memory tokens by a
+second Transformer encoder. Cross-attention produces per-vehicle query vectors, and node logits are computed with a
+dot product against node keys. Masks are enforced via masked log-softmax to ensure infeasible actions are excluded.
+
+\subsection{Memory: window + memslot}
+The memory state is a buffer of size (mem\_window + 1). The first slot is a persistent memslot, and the remaining
+slots store the recent window of pooled context embeddings. Each step forms a 2D sequence
+\texttt{[memslot, window, mem\_in]}, applies a Transformer encoder over this short sequence, and updates the memslot
+from the first output token. The window is shifted to include the current \texttt{mem\_in}. The updated memslot is
+also injected as a token into the context pool.
+
+\subsection{Gate and critic}
+The gate head selects between truck and drone branches using pooled truck and drone queries, the weight token, and
+the current memslot. The critic combines pooled graph context, the weight token, and the memslot to compute a value.
+
+\subsection{Action selection}
+The \texttt{act} method supports stochastic sampling for PPO training and deterministic argmax for evaluation. It
+returns the action tuple (vehicle type, instance index, node index), the log-probability, the value estimate, and the
+updated memory buffer.
